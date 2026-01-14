@@ -8,9 +8,8 @@ def hourly_rolling_cap(df, col, window="60D", q=0.99, min_periods=24*14):
     Compute an hour-of-day conditional rolling cap (quantile threshold) for a price/revenue series.
 
     Financial intuition
-    - Produces a time-varying “prudence threshold” used to limit spike-driven overstatement.
-    - The cap is computed separately for each hour-of-day to respect intraday structure
-      (e.g., morning/evening price regimes), rather than applying a single cap to all hours.
+    - Produces a time-varying “prudence threshold” used to limit spikes.
+    - The cap is computed separately for each hour-of-day, respecting intraday seasonality.
 
     Inputs
     - df : pd.DataFrame
@@ -33,15 +32,9 @@ def hourly_rolling_cap(df, col, window="60D", q=0.99, min_periods=24*14):
 
     Output
     - pd.Series
-        A time-indexed Series aligned to the original df index (after concat+sort),
-        containing the rolling cap (same units as df[col], e.g., EUR/MW).
+        A time-indexed Series aligned to the original df index.
         Cap is shifted by 1 timestep so that the cap at time t is based only on information
         available up to t-1 (avoids look-ahead bias).
-
-    Notes
-    - Look-ahead prevention: `.shift(1)` ensures the cap uses past data only.
-    - Missing data: if df[col] has NaNs, the rolling quantile behaves accordingly.
-    - The returned Series may have NaNs early in the sample or for sparse hours.
     """
     caps = []
     for h, g in df[[col]].assign(hour=df["hour"]).groupby("hour"):
@@ -55,13 +48,11 @@ def apply_soft_cap(s: pd.Series, cap: pd.Series, alpha: float = 0.25) -> pd.Seri
     """
     Apply a soft cap to a series to reduce extreme upside spikes while preserving continuity.
 
-    Purpose (financial intuition)
-    - This is a “prudence haircut” mechanism: it reduces revenue/price values above a
-      data-driven threshold (cap), rather than hard-clipping them.
-    - Soft capping keeps some upside participation but dampens tail events that can
-      distort expected revenues and risk metrics (useful for bankability).
+    Purpose
+    - I reduces revenue/price values above a threshold, rather than hard-clipping them.
+    - Soft capping keeps some upside participation but dampens tail events(useful for bankability).
 
-    Mechanics
+    Mechanism
     - If cap is NaN: keep the raw value s (no prudence applied where cap is undefined).
     - If s is NaN: keep NaN (missingness is preserved).
     - If s <= cap: keep s unchanged.
@@ -82,11 +73,6 @@ def apply_soft_cap(s: pd.Series, cap: pd.Series, alpha: float = 0.25) -> pd.Seri
     Output
     - pd.Series
         Prudence-adjusted series (same index and units as s).
-
-    Notes
-    - “Never turns valid observations into NaN”:
-      if s[t] is defined and cap[t] is missing, s[t] is retained.
-    - This transform is monotonic in s (preserves ranking within exceedances).
     """
     y = s.copy()
     m = s.notna() & cap.notna()
@@ -103,14 +89,6 @@ def plot_prudence_component(
 ):
     """
     Visualize raw vs prudent series together with the rolling cap threshold.
-
-    Purpose (auditability)
-    - Provides a transparent view of:
-        (i) the original revenue stream (raw),
-       (ii) the prudence-adjusted stream (prudent),
-      (iii) the cap level used to control spikes (cap),
-      and highlights where a prudence haircut is applied.
-    - The plot title reports data quality and prudence binding frequency.
 
     Inputs
     - df : pd.DataFrame
@@ -134,16 +112,7 @@ def plot_prudence_component(
         Line widths for raw and prudent series.
 
     Output
-    - None (produces a matplotlib plot)
-
-    Reported diagnostics in title
-    - missing(raw): share of timestamps where raw is missing (percentage)
-    - capped share: share of timestamps where cap is defined and raw > cap (percentage)
-
-    Notes
-    - The cap is shown as a filled band from 0 up to cap. This emphasizes the “allowed”
-      region under the prudence threshold.
-    - The “haircut” region (raw - prudent) is shaded where prudent < raw.
+    - Produces a matplotlib plot
     """
     d = df.loc[start:end, [raw_col, prudent_col, cap_col]].copy()
 
@@ -191,11 +160,11 @@ def stationary_bootstrap_indices(n, p, rng):
     """
     Generate index positions for the Stationary Bootstrap (Politis & Romano).
 
-    Purpose (uncertainty modelling)
+    Purpose
     - Creates resampled index sequences that preserve time-dependence by sampling
-      contiguous blocks, but with *random* block lengths.
+      contiguous blocks, but with random block lengths.
     - Block lengths follow a geometric distribution governed by p, making the bootstrap
-      “stationary” (no fixed block boundaries) and suitable for autocorrelated series.
+      “stationary” and suitable for autocorrelated series.
 
     Inputs
     - n : int
@@ -211,7 +180,7 @@ def stationary_bootstrap_indices(n, p, rng):
     - np.ndarray of shape (n,)
         Integer indices in [0, n-1] representing the resampling path.
 
-    Mechanics
+    Intuition
     - Start at a random index.
     - For each subsequent time step:
         - with probability p: jump to a new random index (start a new block),
@@ -231,7 +200,7 @@ def revenue_scenarios_stationary_bootstrap(series, n_sims=2000, exp_block_len=48
     """
     Simulate revenue scenarios using the Stationary Bootstrap.
 
-    Purpose (financial risk metrics)
+    Purpose
     - Generates many plausible alternative histories consistent with the autocorrelation
       structure of the observed revenue series.
     - Used to estimate distributions of annual totals (P50/P90 style outcomes)
@@ -257,7 +226,7 @@ def revenue_scenarios_stationary_bootstrap(series, n_sims=2000, exp_block_len=48
         Each row is one simulated scenario path of length n (same units as input series).
 
     Notes
-    - This function returns simulated *paths*, not aggregated totals.
+    - This function returns simulated paths, not aggregated totals.
       Annual totals are typically computed downstream by summing along axis=1.
     """
     rng = np.random.default_rng(seed)
@@ -270,17 +239,10 @@ def revenue_scenarios_stationary_bootstrap(series, n_sims=2000, exp_block_len=48
         sims[i, :] = x[idx]
     return sims
 
+
 def capping_stats(raw, cap):
     """
     Compute simple diagnostics on how often a cap is defined and how often it binds.
-
-    Purpose (model governance / transparency)
-    - Quantifies the “activity” of prudence:
-        - Is the cap available most of the time (enough history)?
-        - How frequently does raw exceed cap?
-        - How large are exceedances when they occur?
-    - These metrics help justify prudence settings (window, q, alpha) and document
-      the impact of spike control on revenue projections.
 
     Inputs
     - raw : pd.Series
@@ -299,9 +261,6 @@ def capping_stats(raw, cap):
         - avg_exceedance : float
             Average exceedance magnitude (raw - cap) conditional on exceedance.
             Returns 0.0 if there are no exceedances.
-
-    Notes
-    - exceed_share_of_defined uses max(m.sum(), 1) to avoid division by zero.
     """
     m = raw.notna() & cap.notna()
     exceed = m & (raw > cap)
@@ -311,5 +270,3 @@ def capping_stats(raw, cap):
         "exceed_share_of_defined": float(exceed.sum() / max(m.sum(), 1)),
         "avg_exceedance": float((raw[exceed] - cap[exceed]).mean()) if exceed.any() else 0.0
     }
-
-
