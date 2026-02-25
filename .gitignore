@@ -1,0 +1,56 @@
+
+---
+
+# .gitignore
+
+```gitignore
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Data files (adjust as needed)
+data/
+*.xlsx
+*.parquet
+
+# Plots / exports
+*.png
+*.pdf
+
+# Large outputs
+outputs/
+results/
+
+# Temporary files
+*.tmp
+*.bak
+
+# Misc
+activated_aFRR_NL.ipynb
+activated_aFRR_NL.csv
