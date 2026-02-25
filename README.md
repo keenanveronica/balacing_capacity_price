@@ -200,7 +200,7 @@ To recreate the environment:
 ```bash
 conda env create -f environment.yml
 conda activate balancing-capacity-env
-
+```
 ---
 
 ## 7. Key Assumptions
